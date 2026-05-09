@@ -4,7 +4,7 @@
 
 文档语言: [English](README.md) | 中文简体
 
-强大的官方 Image 扩展组件, 支持加载以及失败显示，缓存网络图片，缩放拖拽图片，图片浏览(微信掘金效果)，滑动退出页面(微信掘金效果)，编辑图片(裁剪旋转翻转)，保存，绘制自定义效果等功能
+强大的官方 Image 扩展组件, 支持加载以及失败显示，缓存网络图片，缩放拖拽图片，图片浏览(微信掘金效果)，滑动退出页面(微信掘金效果)，编辑图片(裁剪旋转翻转)，保存，绘制自定义效果，透视变换等功能
 
 [Web demo for ExtendedImage](https://fluttercandies.github.io/extended_image/)
 
@@ -425,7 +425,6 @@ EditorConfig
 | hitTestBehavior        | 设置hittest的行为                                                                  | HitTestBehavior.deferToChild                                 |
 | controller             | 提供旋转,翻转,撤销,重做,重置, 重新设置裁剪比例等操作                               | null                                                         |
 
-
 ### 裁剪框的宽高比
 
 这是一个 double 类型，你可以自定义裁剪框的宽高比。
@@ -694,6 +693,10 @@ dependencies:
 ```
 
 [more detail](https://github.com/fluttercandies/extended_image/blob/master/example/lib/common/utils/crop_editor_helper.dart)
+
+### 透视变换
+
+支持通过透视变换扭曲图片，实现透视效果。
 
 ## 图片浏览
 
