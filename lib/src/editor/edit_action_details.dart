@@ -4,6 +4,13 @@ import 'package:extended_image/extended_image.dart';
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart';
 
+class _LineIntersection {
+  const _LineIntersection(this.t1, this.t2);
+
+  final double t1;
+  final double t2;
+}
+
 class EditActionDetails {
   EditorConfig? config;
   Rect? _layoutRect;
@@ -62,9 +69,16 @@ class EditActionDetails {
 
   double rotationYRadians = 0.0;
 
+  List<Offset>? perspectiveOffsets;
+  List<Offset>? meshWarpOffsets;
+
+  bool get hasPerspective => perspectiveOffsets != null;
+  bool get hasMeshWarp => meshWarpOffsets != null;
+
   bool get hasRotateDegrees => !isTwoPi;
 
-  bool get hasEditAction => hasRotateDegrees || rotationYRadians != 0;
+  bool get hasEditAction =>
+      hasRotateDegrees || rotationYRadians != 0 || hasPerspective || hasMeshWarp;
 
   bool get needCrop => screenCropRect != screenDestinationRect;
 
@@ -177,29 +191,96 @@ class EditActionDetails {
 
   /// The path of the processed image, displayed on the screen
   ///
-  Path getImagePath({Rect? rect}) {
+  Path getImagePath({Rect? rect, bool includePerspective = true}) {
     rect ??= _screenDestinationRect!;
 
-    final Matrix4 result = getTransform();
-    final List<Offset> corners = <Offset>[
-      rect.topLeft,
-      rect.topRight,
-      rect.bottomRight,
-      rect.bottomLeft,
-    ];
-    final List<Offset> rotatedCorners =
-        corners.map((Offset corner) {
-          final Vector4 cornerVector = Vector4(corner.dx, corner.dy, 0.0, 1.0);
-          final Vector4 newCornerVector = result.transform(cornerVector);
-          return Offset(newCornerVector.x, newCornerVector.y);
-        }).toList();
+    final List<Offset> rotatedCorners = includePerspective
+        ? getPaintedImageCorners(rect: rect)
+        : getImageCorners(rect: rect);
 
-    return Path()
+    final Path path = Path()
       ..moveTo(rotatedCorners[0].dx, rotatedCorners[0].dy)
       ..lineTo(rotatedCorners[1].dx, rotatedCorners[1].dy)
       ..lineTo(rotatedCorners[2].dx, rotatedCorners[2].dy)
       ..lineTo(rotatedCorners[3].dx, rotatedCorners[3].dy)
       ..close();
+    if (includePerspective && hasMeshWarp) {
+      for (final Offset point in getMeshWarpControlPoints(rect: rect)) {
+        path.addOval(Rect.fromCircle(center: point, radius: 1));
+      }
+    }
+    return path;
+  }
+
+  List<Offset> getImageCorners({Rect? rect}) {
+    rect ??= _screenDestinationRect!;
+    final Matrix4 result = getTransform();
+    return <Offset>[
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ].map((Offset corner) {
+      final Vector4 cornerVector = Vector4(corner.dx, corner.dy, 0.0, 1.0);
+      final Vector4 newCornerVector = result.transform(cornerVector);
+      return Offset(newCornerVector.x, newCornerVector.y);
+    }).toList();
+  }
+
+  List<Offset> getPaintedImageCorners({Rect? rect}) {
+    final List<Offset> corners = getImageCorners(rect: rect);
+    if (!hasPerspective) {
+      return corners;
+    }
+    return <Offset>[
+      corners[0] + perspectiveOffsets![0],
+      corners[1] + perspectiveOffsets![1],
+      corners[2] + perspectiveOffsets![2],
+      corners[3] + perspectiveOffsets![3],
+    ];
+  }
+
+  List<Offset> getMeshWarpControlPoints({Rect? rect}) {
+    rect ??= _screenDestinationRect!;
+    final List<Offset> corners = getPaintedImageCorners(rect: rect);
+    final List<Offset> offsets =
+        meshWarpOffsets ?? List<Offset>.filled(9, Offset.zero);
+    return <Offset>[
+      for (int y = 0; y < 3; y++)
+        for (int x = 0; x < 3; x++)
+          _bilinearPoint(corners, x / 2, y / 2) + offsets[y * 3 + x],
+    ];
+  }
+
+  Offset getWarpedImagePoint({Rect? rect, required double u, required double v}) {
+    rect ??= _screenDestinationRect!;
+    if (!hasMeshWarp) {
+      return _bilinearPoint(getPaintedImageCorners(rect: rect), u, v);
+    }
+
+    final List<Offset> points = getMeshWarpControlPoints(rect: rect);
+    final int cellX = min((u * 2).floor(), 1);
+    final int cellY = min((v * 2).floor(), 1);
+    final double localU = u * 2 - cellX;
+    final double localV = v * 2 - cellY;
+    final int topLeftIndex = cellY * 3 + cellX;
+    return _bilinearPoint(
+      <Offset>[
+        points[topLeftIndex],
+        points[topLeftIndex + 1],
+        points[topLeftIndex + 4],
+        points[topLeftIndex + 3],
+      ],
+      localU,
+      localV,
+    );
+  }
+
+  Offset _bilinearPoint(List<Offset> corners, double u, double v) {
+    return corners[0] * (1 - u) * (1 - v) +
+        corners[1] * u * (1 - v) +
+        corners[3] * (1 - u) * v +
+        corners[2] * u * v;
   }
 
   Rect rotateRect(Rect rect, Offset center, double angle) {
@@ -234,6 +315,382 @@ class EditActionDetails {
     result.translate(-origin.dx, -origin.dy);
 
     return result;
+  }
+
+  Matrix4 getPaintTransform() {
+    if (!hasPerspective) {
+      return getTransform();
+    }
+
+    final Rect rect = _screenDestinationRect!;
+    final List<Offset> corners = getImageCorners(rect: rect);
+    final List<Offset> targetCorners = <Offset>[
+      corners[0] + perspectiveOffsets![0],
+      corners[1] + perspectiveOffsets![1],
+      corners[2] + perspectiveOffsets![2],
+      corners[3] + perspectiveOffsets![3],
+    ];
+    return getProjectiveTransform(<Offset>[
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ], targetCorners);
+  }
+
+  void updatePerspectiveOffset(int index, Offset delta) {
+    assert(index >= 0 && index < 4);
+    final List<Offset> offsets =
+        perspectiveOffsets == null
+            ? List<Offset>.filled(4, Offset.zero)
+            : List<Offset>.of(perspectiveOffsets!);
+    offsets[index] += delta;
+    perspectiveOffsets = offsets;
+  }
+
+  bool tryUpdatePerspectiveOffsets(
+    List<int> indexes,
+    Offset delta, {
+    Rect? bounds,
+  }) {
+    final Rect? rect = _screenDestinationRect;
+    if (rect == null) {
+      return false;
+    }
+
+    final List<Offset> corners = getImageCorners(rect: rect);
+    final List<Offset> offsets =
+        perspectiveOffsets == null
+            ? List<Offset>.filled(4, Offset.zero)
+            : List<Offset>.of(perspectiveOffsets!);
+
+    Offset adjustedDelta = delta;
+    if (bounds != null) {
+      for (final int index in indexes) {
+        final Offset point = corners[index] + offsets[index];
+        adjustedDelta = Offset(
+          adjustedDelta.dx.clamp(
+            bounds.left - point.dx,
+            bounds.right - point.dx,
+          ),
+          adjustedDelta.dy.clamp(
+            bounds.top - point.dy,
+            bounds.bottom - point.dy,
+          ),
+        );
+      }
+    }
+
+    for (final int index in indexes) {
+      assert(index >= 0 && index < 4);
+      offsets[index] += adjustedDelta;
+    }
+
+    final List<Offset> points = <Offset>[
+      corners[0] + offsets[0],
+      corners[1] + offsets[1],
+      corners[2] + offsets[2],
+      corners[3] + offsets[3],
+    ];
+    if (!_isValidPerspectiveQuadrilateral(points)) {
+      return false;
+    }
+
+    final List<Offset> sourceCorners = <Offset>[
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+    ];
+    final List<double>? coefficients = _getProjectiveCoefficients(
+      sourceCorners,
+      points,
+    );
+    if (coefficients == null ||
+        !_isStableProjectiveTransform(sourceCorners, coefficients)) {
+      return false;
+    }
+
+    perspectiveOffsets = offsets;
+    return true;
+  }
+
+  void setPerspectiveOffsets(List<Offset>? offsets) {
+    assert(offsets == null || offsets.length == 4);
+    perspectiveOffsets = offsets == null ? null : List<Offset>.of(offsets);
+  }
+
+  void resetPerspective() {
+    perspectiveOffsets = null;
+  }
+
+  bool tryUpdateMeshWarpOffset(int index, Offset delta, {Rect? bounds}) {
+    assert(index >= 0 && index < 9);
+    final Rect? rect = _screenDestinationRect;
+    if (rect == null) {
+      return false;
+    }
+    final List<Offset> controls = getMeshWarpControlPoints(rect: rect);
+    Offset adjustedDelta = delta;
+    if (bounds != null) {
+      final Offset point = controls[index];
+      adjustedDelta = Offset(
+        adjustedDelta.dx.clamp(bounds.left - point.dx, bounds.right - point.dx),
+        adjustedDelta.dy.clamp(bounds.top - point.dy, bounds.bottom - point.dy),
+      );
+    }
+
+    final List<Offset> offsets =
+        meshWarpOffsets == null
+            ? List<Offset>.filled(9, Offset.zero)
+            : List<Offset>.of(meshWarpOffsets!);
+    offsets[index] += adjustedDelta;
+    meshWarpOffsets = offsets;
+    return true;
+  }
+
+  void setMeshWarpOffsets(List<Offset>? offsets) {
+    assert(offsets == null || offsets.length == 9);
+    meshWarpOffsets = offsets == null ? null : List<Offset>.of(offsets);
+  }
+
+  void resetMeshWarp() {
+    meshWarpOffsets = null;
+  }
+
+  Matrix4 getProjectiveTransform(List<Offset> from, List<Offset> to) {
+    assert(from.length == 4 && to.length == 4);
+    final List<double>? h = _getProjectiveCoefficients(from, to);
+    if (h == null || !_isStableProjectiveTransform(from, h)) {
+      return Matrix4.identity();
+    }
+    return _matrixFromProjectiveCoefficients(h);
+  }
+
+  List<double>? _getProjectiveCoefficients(List<Offset> from, List<Offset> to) {
+    final List<List<double>> a = <List<double>>[];
+    final List<double> b = <double>[];
+    for (int i = 0; i < 4; i++) {
+      final double x = from[i].dx;
+      final double y = from[i].dy;
+      final double u = to[i].dx;
+      final double v = to[i].dy;
+      a.add(<double>[x, y, 1, 0, 0, 0, -u * x, -u * y]);
+      b.add(u);
+      a.add(<double>[0, 0, 0, x, y, 1, -v * x, -v * y]);
+      b.add(v);
+    }
+    final List<double>? h = _solveLinearSystem(a, b);
+    if (h == null) {
+      return null;
+    }
+    return <double>[h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+  }
+
+  Matrix4 _matrixFromProjectiveCoefficients(List<double> h) {
+    return Matrix4.identity()
+      ..setEntry(0, 0, h[0])
+      ..setEntry(0, 1, h[1])
+      ..setEntry(0, 3, h[2])
+      ..setEntry(1, 0, h[3])
+      ..setEntry(1, 1, h[4])
+      ..setEntry(1, 3, h[5])
+      ..setEntry(3, 0, h[6])
+      ..setEntry(3, 1, h[7]);
+  }
+
+  bool _isValidPerspectiveQuadrilateral(List<Offset> points) {
+    if (points.length != 4) {
+      return false;
+    }
+    for (final Offset point in points) {
+      if (!point.dx.isFinite || !point.dy.isFinite) {
+        return false;
+      }
+    }
+
+    const double minSide = 12;
+    const double minCross = 50;
+    const double minTriangleArea = 100;
+    for (int i = 0; i < 4; i++) {
+      if ((points[(i + 1) % 4] - points[i]).distance < minSide) {
+        return false;
+      }
+    }
+
+    for (int i = 0; i < 4; i++) {
+      final Offset a = points[i];
+      final Offset b = points[(i + 1) % 4];
+      final Offset c = points[(i + 2) % 4];
+      final double triangleArea =
+          ((b.dx - a.dx) * (c.dy - a.dy) -
+                  (b.dy - a.dy) * (c.dx - a.dx))
+              .abs() /
+          2;
+      if (triangleArea < minTriangleArea) {
+        return false;
+      }
+    }
+
+    double signedArea = 0;
+    for (int i = 0; i < 4; i++) {
+      final Offset a = points[i];
+      final Offset b = points[(i + 1) % 4];
+      signedArea += a.dx * b.dy - b.dx * a.dy;
+    }
+    if (signedArea.abs() < 200) {
+      return false;
+    }
+
+    double? crossSign;
+    for (int i = 0; i < 4; i++) {
+      final Offset a = points[i];
+      final Offset b = points[(i + 1) % 4];
+      final Offset c = points[(i + 2) % 4];
+      final Offset ab = b - a;
+      final Offset bc = c - b;
+      final double cross = ab.dx * bc.dy - ab.dy * bc.dx;
+      if (cross.abs() < minCross) {
+        return false;
+      }
+      crossSign ??= cross.sign;
+      if (cross.sign != crossSign) {
+        return false;
+      }
+    }
+    return crossSign != null &&
+        !_segmentsIntersect(points[0], points[1], points[2], points[3]) &&
+        !_segmentsIntersect(points[1], points[2], points[3], points[0]) &&
+        _hasStableDiagonals(points);
+  }
+
+  bool _hasStableDiagonals(List<Offset> points) {
+    const double minDiagonal = 24;
+    if ((points[2] - points[0]).distance < minDiagonal ||
+        (points[3] - points[1]).distance < minDiagonal) {
+      return false;
+    }
+
+    final _LineIntersection? intersection = _lineIntersection(
+      points[0],
+      points[2],
+      points[1],
+      points[3],
+    );
+    if (intersection == null) {
+      return false;
+    }
+
+    const double minT = 0.08;
+    const double maxT = 0.92;
+    return intersection.t1 > minT &&
+        intersection.t1 < maxT &&
+        intersection.t2 > minT &&
+        intersection.t2 < maxT;
+  }
+
+  _LineIntersection? _lineIntersection(
+    Offset a,
+    Offset b,
+    Offset c,
+    Offset d,
+  ) {
+    final Offset r = b - a;
+    final Offset s = d - c;
+    final double denominator = _cross(r, s);
+    if (denominator.abs() < 0.000001) {
+      return null;
+    }
+    final Offset ca = c - a;
+    return _LineIntersection(
+      _cross(ca, s) / denominator,
+      _cross(ca, r) / denominator,
+    );
+  }
+
+  bool _segmentsIntersect(Offset a, Offset b, Offset c, Offset d) {
+    final double d1 = _cross(c - a, b - a);
+    final double d2 = _cross(d - a, b - a);
+    final double d3 = _cross(a - c, d - c);
+    final double d4 = _cross(b - c, d - c);
+    return d1 * d2 < 0 && d3 * d4 < 0;
+  }
+
+  double _cross(Offset a, Offset b) {
+    return a.dx * b.dy - a.dy * b.dx;
+  }
+
+  bool _isStableProjectiveTransform(List<Offset> source, List<double> h) {
+    const double minAbsW = 0.02;
+    double? sign;
+    for (int y = 0; y <= 4; y++) {
+      final double v = y / 4;
+      for (int x = 0; x <= 4; x++) {
+        final double u = x / 4;
+        final Offset point =
+            source[0] * (1 - u) * (1 - v) +
+            source[1] * u * (1 - v) +
+            source[3] * (1 - u) * v +
+            source[2] * u * v;
+        final double w = h[6] * point.dx + h[7] * point.dy + h[8];
+        if (!w.isFinite || w.abs() < minAbsW) {
+          return false;
+        }
+        sign ??= w.sign;
+        if (w.sign != sign) {
+          return false;
+        }
+        final double tx = (h[0] * point.dx + h[1] * point.dy + h[2]) / w;
+        final double ty = (h[3] * point.dx + h[4] * point.dy + h[5]) / w;
+        if (!tx.isFinite || !ty.isFinite) {
+          return false;
+        }
+      }
+    }
+    return sign != null;
+  }
+
+  List<double>? _solveLinearSystem(List<List<double>> a, List<double> b) {
+    final int n = b.length;
+    for (int i = 0; i < n; i++) {
+      int maxRow = i;
+      for (int k = i + 1; k < n; k++) {
+        if (a[k][i].abs() > a[maxRow][i].abs()) {
+          maxRow = k;
+        }
+      }
+      final List<double> tmpRow = a[i];
+      a[i] = a[maxRow];
+      a[maxRow] = tmpRow;
+      final double tmpValue = b[i];
+      b[i] = b[maxRow];
+      b[maxRow] = tmpValue;
+
+      final double pivot = a[i][i];
+      if (pivot.abs() < 0.000001) {
+        return null;
+      }
+      for (int k = i + 1; k < n; k++) {
+        final double factor = a[k][i] / pivot;
+        for (int j = i; j < n; j++) {
+          a[k][j] -= factor * a[i][j];
+        }
+        b[k] -= factor * b[i];
+      }
+    }
+
+    final List<double> x = List<double>.filled(n, 0);
+    for (int i = n - 1; i >= 0; i--) {
+      double sum = b[i];
+      for (int j = i + 1; j < n; j++) {
+        sum -= a[i][j] * x[j];
+      }
+      if (a[i][i].abs() < 0.000001) {
+        return null;
+      }
+      x[i] = sum / a[i][i];
+    }
+    return x;
   }
 
   double reverseRotateRadians(double rotateRadians) {
@@ -723,6 +1180,8 @@ class EditActionDetails {
     double? cropAspectRatio,
     double? rotateRadians,
     double? rotationYRadians,
+    List<Offset>? perspectiveOffsets,
+    List<Offset>? meshWarpOffsets,
   }) {
     return EditActionDetails()
       .._layoutRect = layoutRect ?? _layoutRect
@@ -738,6 +1197,16 @@ class EditActionDetails {
       ..cropAspectRatio = cropAspectRatio ?? _cropAspectRatio
       ..rotateRadians = rotateRadians ?? this.rotateRadians
       ..rotationYRadians = rotationYRadians ?? this.rotationYRadians
+      ..perspectiveOffsets = perspectiveOffsets == null
+          ? this.perspectiveOffsets == null
+              ? null
+              : List<Offset>.of(this.perspectiveOffsets!)
+          : List<Offset>.of(perspectiveOffsets)
+      ..meshWarpOffsets = meshWarpOffsets == null
+          ? this.meshWarpOffsets == null
+              ? null
+              : List<Offset>.of(this.meshWarpOffsets!)
+          : List<Offset>.of(meshWarpOffsets)
       ..config = config;
   }
 
@@ -760,7 +1229,24 @@ class EditActionDetails {
         originalAspectRatio.equalTo(other.originalAspectRatio) &&
         cropAspectRatio.equalTo(other.cropAspectRatio) &&
         rotateRadians.equalTo(other.rotateRadians) &&
-        rotationYRadians.equalTo(other.rotationYRadians);
+        rotationYRadians.equalTo(other.rotationYRadians) &&
+        _offsetListIsSame(perspectiveOffsets, other.perspectiveOffsets) &&
+        _offsetListIsSame(meshWarpOffsets, other.meshWarpOffsets);
+  }
+
+  bool _offsetListIsSame(List<Offset>? a, List<Offset>? b) {
+    if (a == null || b == null) {
+      return a == b;
+    }
+    if (a.length != b.length) {
+      return false;
+    }
+    for (int i = 0; i < a.length; i++) {
+      if (!a[i].isSame(b[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @override
@@ -777,6 +1263,8 @@ class EditActionDetails {
         originalAspectRatio.hashCode ^
         cropAspectRatio.hashCode ^
         rotateRadians.hashCode ^
-        rotationYRadians.hashCode;
+        rotationYRadians.hashCode ^
+        Object.hashAll(perspectiveOffsets ?? <Offset>[]) ^
+        Object.hashAll(meshWarpOffsets ?? <Offset>[]);
   }
 }

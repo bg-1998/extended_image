@@ -1,20 +1,21 @@
 //import 'dart:typed_data';
 import 'dart:isolate';
-import 'dart:ui';
+import 'dart:ui' as ui;
 
 // import 'package:isolate/load_balancer.dart';
 // import 'package:isolate/isolate_runner.dart';
 import 'package:extended_image/extended_image.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 // ignore: implementation_imports
 import 'package:http_client_helper/http_client_helper.dart';
-import 'package:image/image.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_editor/image_editor.dart';
 
 // final Future<LoadBalancer> loadBalancer =
 //     LoadBalancer.create(1, IsolateRunner.spawn);
 
-enum ImageType { gif, jpg }
+enum ImageType { gif, jpg, png }
 
 class EditImageInfo {
   EditImageInfo(
@@ -25,12 +26,103 @@ class EditImageInfo {
   final ImageType imageType;
 }
 
+Future<EditImageInfo> perspectiveImageDataWithDartLibrary(
+    ImageEditorController imageEditorController) async
+{
+  print('dart library start perspective');
+  final ExtendedImageEditorState state = imageEditorController.state!;
+  final Uint8List data = kIsWeb &&
+          imageEditorController.state!.widget.extendedImageState.imageWidget
+              .image is ExtendedNetworkImageProvider
+      ? await _loadNetwork(imageEditorController.state!.widget
+          .extendedImageState.imageWidget.image as ExtendedNetworkImageProvider)
+      : state.rawImageData;
+  final RenderBox? renderBox = state.context.findRenderObject() as RenderBox?;
+  if (renderBox == null) {
+    throw Exception('Failed to convert image to bytes');
+  }
+  final EditActionDetails editAction = state.editAction!;
+  final DateTime time1 = DateTime.now();
+
+  final ui.Image? decodedImage = await decodeImageFromList(data);
+  if (decodedImage == null) {
+    throw Exception('Failed to decode image');
+  }
+
+  final ExtendedImage extendedImage =
+      state.widget.extendedImageState.imageWidget;
+  final ui.PictureRecorder recorder = ui.PictureRecorder();
+  final ui.Canvas canvas = ui.Canvas(recorder);
+  final double widthRatio = state.image!.width / renderBox.size.width;
+  final double heightRatio = state.image!.height / renderBox.size.height;
+  canvas.scale(widthRatio, heightRatio);
+  final ui.Rect rect = ui.Rect.fromLTWH(
+      0, 0, renderBox.size.width, renderBox.size.height);
+  final ui.Size outputSize =
+  ui.Size(state.image!.width.toDouble(), state.image!.height.toDouble());
+  final Alignment resolvedAlignment = extendedImage.alignment.resolve(null);
+  paintExtendedImage(
+    canvas: canvas,
+    rect: rect,
+    image: decodedImage,
+    scale: state.widget.extendedImageState.extendedImageInfo?.scale ?? 1.0,
+    opacity: extendedImage.opacity?.value ?? 1.0,
+    colorFilter: extendedImage.color == null
+        ? null
+        : ColorFilter.mode(
+            extendedImage.color!,
+            extendedImage.colorBlendMode ?? ui.BlendMode.srcIn,
+          ),
+    fit: extendedImage.fit,
+    alignment: resolvedAlignment,
+    centerSlice: extendedImage.centerSlice,
+    repeat: extendedImage.repeat,
+    invertColors: state.widget.extendedImageState.invertColors,
+    filterQuality: extendedImage.filterQuality,
+    isAntiAlias: extendedImage.isAntiAlias,
+    customSourceRect: null,
+    beforePaintImage: extendedImage.beforePaintImage,
+    afterPaintImage: extendedImage.afterPaintImage,
+    editActionDetails: editAction,
+    layoutInsets: extendedImage.layoutInsets,
+  );
+
+  final ui.Picture picture = recorder.endRecording();
+  final ui.Image resultImage = await picture.toImage(
+    outputSize.width.toInt(),
+    outputSize.height.toInt(),
+  );
+
+  print('Painting completed');
+
+  final ByteData? byteData = await resultImage.toByteData(
+    format: ui.ImageByteFormat.png,
+  );
+
+  if (byteData == null) {
+    throw Exception('Failed to convert image to bytes');
+  }
+
+  final Uint8List pngBytes = byteData.buffer.asUint8List();
+  final DateTime time2 = DateTime.now();
+  print('${time2.difference(time1)} : total time for painting and encoding');
+
+  decodedImage.dispose();
+  resultImage.dispose();
+
+  return EditImageInfo(
+    pngBytes,
+    ImageType.png,
+  );
+}
+
 Future<EditImageInfo> cropImageDataWithDartLibrary(
-    ImageEditorController imageEditorController) async {
+    ImageEditorController imageEditorController) async
+{
   print('dart library start cropping');
 
   ///crop rect base on raw image
-  Rect cropRect = imageEditorController.getCropRect()!;
+  ui.Rect cropRect = imageEditorController.getCropRect()!;
   final ExtendedImageEditorState state = imageEditorController.state!;
 
   print('getCropRect : $cropRect');
@@ -44,26 +136,26 @@ Future<EditImageInfo> cropImageDataWithDartLibrary(
   //     resolved); //
 
   final Uint8List data = kIsWeb &&
-          imageEditorController.state!.widget.extendedImageState.imageWidget
-              .image is ExtendedNetworkImageProvider
+      imageEditorController.state!.widget.extendedImageState.imageWidget
+          .image is ExtendedNetworkImageProvider
       ? await _loadNetwork(imageEditorController.state!.widget
-          .extendedImageState.imageWidget.image as ExtendedNetworkImageProvider)
+      .extendedImageState.imageWidget.image as ExtendedNetworkImageProvider)
 
-      ///toByteData is not work on web
-      ///https://github.com/flutter/flutter/issues/44908
-      // (await state.image.toByteData(format: ui.ImageByteFormat.png))
-      //     .buffer
-      //     .asUint8List()
+  ///toByteData is not work on web
+  ///https://github.com/flutter/flutter/issues/44908
+  // (await state.image.toByteData(format: ui.ImageByteFormat.png))
+  //     .buffer
+  //     .asUint8List()
       : state.rawImageData;
 
   if (data == state.rawImageData &&
       state.widget.extendedImageState.imageProvider is ExtendedResizeImage) {
-    final ImmutableBuffer buffer =
-        await ImmutableBuffer.fromUint8List(state.rawImageData);
-    final ImageDescriptor descriptor = await ImageDescriptor.encoded(buffer);
+    final ui.ImmutableBuffer buffer =
+    await ui.ImmutableBuffer.fromUint8List(state.rawImageData);
+    final ui.ImageDescriptor descriptor = await ui.ImageDescriptor.encoded(buffer);
     final double widthRatio = descriptor.width / state.image!.width;
     final double heightRatio = descriptor.height / state.image!.height;
-    cropRect = Rect.fromLTRB(
+    cropRect = ui.Rect.fromLTRB(
       cropRect.left * widthRatio,
       cropRect.top * heightRatio,
       cropRect.right * widthRatio,
@@ -76,29 +168,29 @@ Future<EditImageInfo> cropImageDataWithDartLibrary(
   final DateTime time1 = DateTime.now();
 
   //Decode source to Animation. It can holds multi frame.
-  Image? src;
+  img.Image? src;
   //LoadBalancer lb;
   if (kIsWeb) {
-    src = decodeImage(data);
+    src = img.decodeImage(data);
   } else {
-    src = await compute(decodeImage, data);
+    src = await compute(img.decodeImage, data);
   }
   if (src != null) {
     //handle every frame.
-    src.frames = src.frames.map((Image image) {
+    src.frames = src.frames.map((img.Image image) {
       final DateTime time2 = DateTime.now();
       //clear orientation
-      image = bakeOrientation(image);
+      image = img.bakeOrientation(image);
       if (editAction.hasRotateDegrees) {
-        image = copyRotate(image, angle: editAction.rotateDegrees);
+        image = img.copyRotate(image, angle: editAction.rotateDegrees);
       }
 
       if (editAction.flipY) {
-        image = flip(image, direction: FlipDirection.horizontal);
+        image = img.flip(image, direction: img.FlipDirection.horizontal);
       }
 
       if (editAction.needCrop) {
-        image = copyCrop(
+        image = img.copyCrop(
           image,
           x: cropRect.left.toInt(),
           y: cropRect.top.toInt(),
@@ -131,12 +223,12 @@ Future<EditImageInfo> cropImageDataWithDartLibrary(
   //If there's only one frame, encode it to jpg.
   if (kIsWeb) {
     fileData =
-        onlyOneFrame ? encodeJpg(Image.from(src.frames.first)) : encodeGif(src);
+    onlyOneFrame ? img.encodeJpg(img.Image.from(src.frames.first)) : img.encodeGif(src);
   } else {
     //fileData = await lb.run<List<int>, Image>(encodeJpg, src);
     fileData = (onlyOneFrame
-        ? await compute(encodeJpg, Image.from(src.frames.first))
-        : await compute(encodeGif, src));
+        ? await compute(img.encodeJpg, img.Image.from(src.frames.first))
+        : await compute(img.encodeGif, src));
   }
 
   final DateTime time5 = DateTime.now();
@@ -167,17 +259,17 @@ Future<EditImageInfo> cropImageDataWithNativeLibrary(
   }
 
   if (action.needCrop) {
-    Rect cropRect = imageEditorController.getCropRect()!;
+    ui.Rect cropRect = imageEditorController.getCropRect()!;
     if (imageEditorController.state!.widget.extendedImageState.imageProvider
-        is ExtendedResizeImage) {
-      final ImmutableBuffer buffer = await ImmutableBuffer.fromUint8List(img);
-      final ImageDescriptor descriptor = await ImageDescriptor.encoded(buffer);
+    is ExtendedResizeImage) {
+      final ui.ImmutableBuffer buffer = await ui.ImmutableBuffer.fromUint8List(img);
+      final ui.ImageDescriptor descriptor = await ui.ImageDescriptor.encoded(buffer);
 
       final double widthRatio =
           descriptor.width / imageEditorController.state!.image!.width;
       final double heightRatio =
           descriptor.height / imageEditorController.state!.image!.height;
-      cropRect = Rect.fromLTRB(
+      cropRect = ui.Rect.fromLTRB(
         cropRect.left * widthRatio,
         cropRect.top * heightRatio,
         cropRect.right * widthRatio,
@@ -223,7 +315,7 @@ void _isolateDecodeImage(SendPort port) {
   rPort.listen((dynamic message) {
     final SendPort send = message[0] as SendPort;
     final List<int> data = message[1] as List<int>;
-    send.send(decodeImage(Uint8List.fromList(data)));
+    send.send(img.decodeImage(Uint8List.fromList(data)));
   });
 }
 
@@ -232,8 +324,8 @@ void _isolateEncodeImage(SendPort port) {
   port.send(rPort.sendPort);
   rPort.listen((dynamic message) {
     final SendPort send = message[0] as SendPort;
-    final Image src = message[1] as Image;
-    send.send(encodeJpg(src));
+    final img.Image src = message[1] as img.Image;
+    send.send(img.encodeJpg(src));
   });
 }
 

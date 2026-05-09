@@ -1,4 +1,5 @@
-import 'dart:ui' as ui show Image;
+import 'dart:ui' as ui show Image, ImageShader, Vertices;
+import 'dart:typed_data';
 import 'package:extended_image/extended_image.dart';
 import 'package:flutter/material.dart';
 
@@ -216,6 +217,9 @@ void paintExtendedImage({
     }
   }
   bool hasEditAction = false;
+  bool usePerspectiveMesh = false;
+  EditActionDetails? meshEditActionDetails;
+  Rect? meshDestinationRect;
   if (editActionDetails != null) {
     if (editActionDetails.cropRectPadding != null) {
       destinationRect = getDestinationRect(
@@ -237,6 +241,14 @@ void paintExtendedImage({
     needClip = !rect.containsRect(editActionDetails.getImagePath().getBounds());
 
     hasEditAction = editActionDetails.hasEditAction;
+    usePerspectiveMesh =
+        (editActionDetails.hasPerspective || editActionDetails.hasMeshWarp) &&
+        centerSlice == null &&
+        repeat == ImageRepeat.noRepeat;
+    if (usePerspectiveMesh) {
+      meshEditActionDetails = editActionDetails;
+      meshDestinationRect = destinationRect;
+    }
 
     if (needClip || hasEditAction) {
       canvas.save();
@@ -245,8 +257,8 @@ void paintExtendedImage({
       }
     }
 
-    if (hasEditAction) {
-      canvas.transform(editActionDetails.getTransform().storage);
+    if (hasEditAction && !usePerspectiveMesh) {
+      canvas.transform(editActionDetails.getPaintTransform().storage);
     }
   }
 
@@ -276,7 +288,18 @@ void paintExtendedImage({
     final Rect sourceRect =
         customSourceRect ??
         alignment.inscribe(sourceSize, Offset.zero & inputSize);
-    if (repeat == ImageRepeat.noRepeat) {
+    if (usePerspectiveMesh &&
+        meshEditActionDetails != null &&
+        meshDestinationRect != null) {
+      _drawPerspectiveImageMesh(
+        canvas,
+        image,
+        sourceRect,
+        meshDestinationRect,
+        meshEditActionDetails,
+        paint,
+      );
+    } else if (repeat == ImageRepeat.noRepeat) {
       canvas.drawImageRect(image, sourceRect, destinationRect, paint);
     } else {
       for (final Rect tileRect in _generateImageTileRects(
@@ -368,3 +391,110 @@ Rect _scaleRect(Rect rect, double scale) => Rect.fromLTRB(
   rect.right * scale,
   rect.bottom * scale,
 );
+
+void _drawPerspectiveImageMesh(
+  Canvas canvas,
+  ui.Image image,
+  Rect sourceRect,
+  Rect destinationRect,
+  EditActionDetails editActionDetails,
+  Paint paint,
+) {
+  if (sourceRect.width <= 0 || sourceRect.height <= 0) {
+    return;
+  }
+
+  const int divisions = 12;
+  const int vertexCount = (divisions + 1) * (divisions + 1);
+  final Float32List positions = Float32List(vertexCount * 2);
+  final Float32List textureCoordinates = Float32List(vertexCount * 2);
+  final Uint16List indices = Uint16List(divisions * divisions * 6);
+
+  for (int y = 0; y <= divisions; y++) {
+    final double v = y / divisions;
+    for (int x = 0; x <= divisions; x++) {
+      final double u = x / divisions;
+      final int vertexIndex = y * (divisions + 1) + x;
+      final int coordinateIndex = vertexIndex * 2;
+      final Offset position = editActionDetails.getWarpedImagePoint(
+        rect: destinationRect,
+        u: u,
+        v: v,
+      );
+      positions[coordinateIndex] = position.dx;
+      positions[coordinateIndex + 1] = position.dy;
+      textureCoordinates[coordinateIndex] = _lerpDouble(
+        sourceRect.left,
+        sourceRect.right,
+        u,
+      );
+      textureCoordinates[coordinateIndex + 1] = _lerpDouble(
+        sourceRect.top,
+        sourceRect.bottom,
+        v,
+      );
+    }
+  }
+
+  final int rowStride = divisions + 1;
+  int indicesIndex = 0;
+  for (int y = 0; y < divisions; y++) {
+    for (int x = 0; x < divisions; x++) {
+      final int topLeft = y * rowStride + x;
+      final int topRight = topLeft + 1;
+      final int bottomLeft = topLeft + rowStride;
+      final int bottomRight = bottomLeft + 1;
+      indices[indicesIndex++] = topLeft;
+      indices[indicesIndex++] = bottomLeft;
+      indices[indicesIndex++] = topRight;
+      indices[indicesIndex++] = topRight;
+      indices[indicesIndex++] = bottomLeft;
+      indices[indicesIndex++] = bottomRight;
+    }
+  }
+
+  final Paint meshPaint = Paint()
+    ..isAntiAlias = paint.isAntiAlias
+    ..colorFilter = paint.colorFilter
+    ..color = paint.color
+    ..filterQuality = paint.filterQuality
+    ..invertColors = paint.invertColors
+    ..shader = ui.ImageShader(
+      image,
+      TileMode.clamp,
+      TileMode.clamp,
+      Float64List.fromList(<double>[
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ]),
+    );
+
+  canvas.drawVertices(
+    ui.Vertices.raw(
+      VertexMode.triangles,
+      positions,
+      textureCoordinates: textureCoordinates,
+      indices: indices,
+    ),
+    BlendMode.modulate,
+    meshPaint,
+  );
+}
+
+double _lerpDouble(double a, double b, double t) {
+  return a + (b - a) * t;
+}

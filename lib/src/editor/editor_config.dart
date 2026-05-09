@@ -5,6 +5,15 @@ import 'package:flutter/material.dart';
 import 'editor_crop_layer_painter.dart';
 import 'editor_utils.dart';
 
+/// Defines the editing mode for the image editor.
+enum EditorMode {
+  /// Standard cropping mode with rotate, flip, and aspect ratio controls.
+  crop,
+
+  /// Perspective transform mode for warping and distorting images.
+  perspective,
+}
+
 /// The `EditorConfig` class provides a customizable configuration for the image editor.
 /// This class defines various parameters for controlling the behavior and appearance
 /// of the cropping functionality, such as maximum scale, aspect ratio, padding,
@@ -37,6 +46,11 @@ class EditorConfig {
     this.editActionDetailsIsChanged,
     this.reverseMousePointerScrollDirection = false,
     this.controller,
+    this.enablePerspectiveTransform = false,
+    this.enableMeshWarpTransform = false,
+    this.perspectiveLineColor,
+    this.perspectiveHandleColor,
+    this.editorMode = EditorMode.crop,
   }) : assert(lineHeight > 0.0),
        assert(hitTestSize >= 0.0),
        assert(maxScale > 0.0),
@@ -120,6 +134,22 @@ class EditorConfig {
   /// This allows for external control of the editing process.
   final ImageEditorController? controller;
 
+  /// Whether the image perspective handles are enabled.
+  final bool enablePerspectiveTransform;
+
+  /// Whether the image mesh warp handles are enabled.
+  final bool enableMeshWarpTransform;
+
+  /// Color of the perspective transform outline.
+  final Color? perspectiveLineColor;
+
+  /// Color of the perspective transform corner handles.
+  final Color? perspectiveHandleColor;
+
+  /// The editing mode for the image editor.
+  /// This determines which features are enabled and how the editor behaves.
+  final EditorMode editorMode;
+
   EditorConfig copyWith({
     double? maxScale,
     EdgeInsets? cropRectPadding,
@@ -140,6 +170,11 @@ class EditorConfig {
     EditActionDetailsIsChanged? editActionDetailsIsChanged,
     bool? reverseMousePointerScrollDirection,
     ImageEditorController? controller,
+    bool? enablePerspectiveTransform,
+    bool? enableMeshWarpTransform,
+    Color? perspectiveLineColor,
+    Color? perspectiveHandleColor,
+    EditorMode? editorMode,
   }) {
     return EditorConfig(
       maxScale: maxScale ?? this.maxScale,
@@ -166,6 +201,14 @@ class EditorConfig {
           reverseMousePointerScrollDirection ??
           this.reverseMousePointerScrollDirection,
       controller: controller ?? this.controller,
+      enablePerspectiveTransform:
+          enablePerspectiveTransform ?? this.enablePerspectiveTransform,
+      enableMeshWarpTransform:
+          enableMeshWarpTransform ?? this.enableMeshWarpTransform,
+      perspectiveLineColor: perspectiveLineColor ?? this.perspectiveLineColor,
+      perspectiveHandleColor:
+          perspectiveHandleColor ?? this.perspectiveHandleColor,
+      editorMode: editorMode ?? this.editorMode,
     );
   }
 
@@ -194,12 +237,17 @@ class EditorConfig {
         other.editActionDetailsIsChanged == editActionDetailsIsChanged &&
         other.reverseMousePointerScrollDirection ==
             reverseMousePointerScrollDirection &&
-        other.controller == controller;
+        other.controller == controller &&
+        other.enablePerspectiveTransform == enablePerspectiveTransform &&
+        other.enableMeshWarpTransform == enableMeshWarpTransform &&
+        other.perspectiveLineColor == perspectiveLineColor &&
+        other.perspectiveHandleColor == perspectiveHandleColor &&
+        other.editorMode == editorMode;
   }
 
   @override
   int get hashCode {
-    return Object.hash(
+    return Object.hashAll(<Object?>[
       maxScale,
       cropRectPadding,
       cornerSize,
@@ -219,6 +267,11 @@ class EditorConfig {
       editActionDetailsIsChanged,
       reverseMousePointerScrollDirection,
       controller,
-    );
+      enablePerspectiveTransform,
+      enableMeshWarpTransform,
+      perspectiveLineColor,
+      perspectiveHandleColor,
+      editorMode,
+    ]);
   }
 }

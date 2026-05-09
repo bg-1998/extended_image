@@ -35,11 +35,16 @@ class ImageEditorDemo extends StatefulWidget {
   _ImageEditorDemoState createState() => _ImageEditorDemoState();
 }
 
-class _ImageEditorDemoState extends State<ImageEditorDemo> {
-  // final GlobalKey<ExtendedImageEditorState> editorKey =
-  //     GlobalKey<ExtendedImageEditorState>();
-  final GlobalKey<PopupMenuButtonState<EditorCropLayerPainter>> popupMenuKey =
-      GlobalKey<PopupMenuButtonState<EditorCropLayerPainter>>();
+class _ImageEditorDemoState extends State<ImageEditorDemo>
+    with SingleTickerProviderStateMixin {
+  Uint8List? _memoryImage;
+
+  final ImageEditorController _cropEditorController = ImageEditorController();
+  final ImageEditorController _perspectiveEditorController =
+      ImageEditorController();
+  final MyRulerPickerController _rulerPickerController =
+      MyRulerPickerController(value: 0.0);
+
   final List<AspectRatioItem> _aspectRatios = <AspectRatioItem>[
     AspectRatioItem(text: 'custom', value: CropAspectRatios.custom),
     AspectRatioItem(text: 'original', value: CropAspectRatios.original),
@@ -50,43 +55,23 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
     AspectRatioItem(text: '9*16', value: CropAspectRatios.ratio9_16)
   ];
 
-  EdgeInsets cropRectPadding = const EdgeInsets.all(20.0);
-  double maxScale = 8.0;
-
-  late ValueNotifier<AspectRatioItem> _aspectRatio;
-
+  late TabController _tabController;
   bool _cropping = false;
-  late ValueNotifier<EditorCropLayerPainter> _cropLayerPainter;
-  final ImageEditorController _editorController = ImageEditorController();
-  final MyRulerPickerController _rulerPickerController =
-      MyRulerPickerController(value: 0.0);
 
   @override
   void initState() {
-    _aspectRatio = ValueNotifier<AspectRatioItem>(_aspectRatios.first);
-    _cropLayerPainter =
-        ValueNotifier<EditorCropLayerPainter>(const EditorCropLayerPainter());
-
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final Color primaryColor = Theme.of(context).primaryColor;
-    late ImageProvider imageProvider;
-
-    if (_memoryImage != null) {
-      imageProvider = ExtendedMemoryImageProvider(
-        _memoryImage!,
-        cacheRawData: true,
-      );
-    } else {
-      imageProvider = const ExtendedAssetImageProvider(
-        Assets.assets_harley_quinn_webp,
-        cacheRawData: true,
-      );
-    }
-    final ToastTheme toastTheme = ToastTheme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('image editor demo'),
@@ -106,389 +91,31 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
             },
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: '裁剪', icon: Icon(Icons.crop)),
+            Tab(text: '透视', icon: Icon(Icons.crop_free)),
+          ],
+        ),
       ),
       body: SafeArea(
         bottom: true,
-        child: Column(
-          children: <Widget>[
-            Expanded(
-              child: ExtendedImage(
-                image: imageProvider,
-                fit: BoxFit.contain,
-                mode: ExtendedImageMode.editor,
-                enableLoadState: true,
-                // extendedImageEditorKey: editorKey,
-                initEditorConfigHandler: (ExtendedImageState? state) {
-                  return EditorConfig(
-                    maxScale: maxScale,
-                    cropRectPadding: cropRectPadding,
-                    hitTestSize: 20.0,
-                    cropLayerPainter: _cropLayerPainter.value,
-                    initCropRectType: InitCropRectType.imageRect,
-                    cropAspectRatio: _aspectRatio.value.value,
-                    controller: _editorController,
-                  );
-                },
-              ),
+        child: TabBarView(
+          controller: _tabController,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            CropPage(
+              memoryImage: _memoryImage,
+              editorController: _cropEditorController,
+              aspectRatios: _aspectRatios,
+              rulerPickerController: _rulerPickerController,
+              onReset: _resetAll,
             ),
-            const Divider(),
-            ButtonTheme(
-              minWidth: 0.0,
-              padding: EdgeInsets.zero,
-              child: Row(
-                // mainAxisAlignment: MainAxisAlignment.spaceAround,
-                // mainAxisSize: MainAxisSize.max,
-                children: <Widget>[
-                  FlatButtonWithIcon(
-                    icon: const Icon(Icons.rounded_corner_sharp),
-                    label: ValueListenableBuilder<EditorCropLayerPainter>(
-                        valueListenable: _cropLayerPainter,
-                        builder: (BuildContext context,
-                            EditorCropLayerPainter value, Widget? child) {
-                          return PopupMenuButton<EditorCropLayerPainter>(
-                            key: popupMenuKey,
-                            enabled: false,
-                            offset: const Offset(100, -300),
-                            child: const Text(
-                              'Painter',
-                              style: TextStyle(fontSize: 8.0),
-                            ),
-                            initialValue: _cropLayerPainter.value,
-                            itemBuilder: (BuildContext context) {
-                              return <PopupMenuEntry<EditorCropLayerPainter>>[
-                                const PopupMenuItem<EditorCropLayerPainter>(
-                                  child: Row(
-                                    children: <Widget>[
-                                      Icon(
-                                        Icons.rounded_corner_sharp,
-                                        color: Colors.blue,
-                                      ),
-                                      SizedBox(
-                                        width: 5,
-                                      ),
-                                      Text('Default'),
-                                    ],
-                                  ),
-                                  value: EditorCropLayerPainter(),
-                                ),
-                                const PopupMenuDivider(),
-                                const PopupMenuItem<EditorCropLayerPainter>(
-                                  child: Row(
-                                    children: <Widget>[
-                                      Icon(
-                                        Icons.circle,
-                                        color: Colors.blue,
-                                      ),
-                                      SizedBox(
-                                        width: 5,
-                                      ),
-                                      Text('Custom'),
-                                    ],
-                                  ),
-                                  value: CustomEditorCropLayerPainter(),
-                                ),
-                                const PopupMenuDivider(),
-                                PopupMenuItem<EditorCropLayerPainter>(
-                                  child: Row(
-                                    children: <Widget>[
-                                      Container(
-                                        margin: const EdgeInsets.symmetric(
-                                            horizontal: 3),
-                                        decoration: BoxDecoration(
-                                          border: Border.all(
-                                            color: Colors.blue,
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(25),
-                                        ),
-                                        width: 20,
-                                        height: 20,
-                                      ),
-                                      const SizedBox(
-                                        width: 5,
-                                      ),
-                                      const Text('Circle'),
-                                    ],
-                                  ),
-                                  value: const CircleEditorCropLayerPainter(),
-                                ),
-                              ];
-                            },
-                            onSelected: (EditorCropLayerPainter value) {
-                              if (_cropLayerPainter.value != value) {
-                                if (value is CircleEditorCropLayerPainter) {
-                                  _aspectRatio.value = _aspectRatios[2];
-                                }
-                                _cropLayerPainter.value = value;
-                                _editorController.updateConfig(
-                                  _editorController.config.copyWith(
-                                    cropLayerPainter: value,
-                                    cropAspectRatio: _aspectRatio.value.value,
-                                    // maxScale: 4,
-                                    // cropRectPadding: const EdgeInsets.all(40),
-                                  ),
-                                );
-                              }
-                            },
-                          );
-                        }),
-                    textColor: Colors.white,
-                    onPressed: () {
-                      popupMenuKey.currentState!.showButtonMenu();
-                    },
-                  ),
-                  ChangeNotifierBuilder(
-                    changeNotifier: _editorController,
-                    builder: (BuildContext b) {
-                      return ButtonTheme(
-                        minWidth: 0.0,
-                        padding: EdgeInsets.zero,
-                        child: Row(children: <Widget>[
-                          FlatButtonWithIcon(
-                            icon: Icon(
-                              Icons.undo,
-                              color: _editorController.canUndo
-                                  ? primaryColor
-                                  : Colors.grey,
-                            ),
-                            label: Text(
-                              'Undo',
-                              style: TextStyle(
-                                fontSize: 10.0,
-                                color: _editorController.canUndo
-                                    ? primaryColor
-                                    : Colors.grey,
-                              ),
-                            ),
-                            textColor: Colors.white,
-                            onPressed: () {
-                              _onUndoOrRedo(() {
-                                _editorController.undo();
-                              });
-                            },
-                          ),
-                          FlatButtonWithIcon(
-                            icon: Icon(
-                              Icons.redo,
-                              color: _editorController.canRedo
-                                  ? primaryColor
-                                  : Colors.grey,
-                            ),
-                            label: Text(
-                              'Redo',
-                              style: TextStyle(
-                                fontSize: 10.0,
-                                color: _editorController.canRedo
-                                    ? primaryColor
-                                    : Colors.grey,
-                              ),
-                            ),
-                            textColor: Colors.white,
-                            onPressed: () {
-                              _onUndoOrRedo(() {
-                                _editorController.redo();
-                              });
-                            },
-                          ),
-                        ]),
-                      );
-                    },
-                  ),
-                  const Spacer(),
-                  FlatButtonWithIcon(
-                    icon: const Icon(Icons.restore),
-                    label: const Text(
-                      'Reset',
-                      style: TextStyle(fontSize: 10.0),
-                    ),
-                    textColor: Colors.white,
-                    onPressed: () {
-                      _rulerPickerController.value = 0;
-                      _aspectRatio.value = _aspectRatios.first;
-                      _cropLayerPainter.value = const EditorCropLayerPainter();
-                      _editorController.reset();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            ButtonTheme(
-              minWidth: 0.0,
-              padding: EdgeInsets.zero,
-              child: Row(
-                children: <Widget>[
-                  FlatButtonWithIcon(
-                    icon: const Icon(Icons.flip),
-                    label: const Text(
-                      'Flip',
-                      style: TextStyle(fontSize: 10.0),
-                    ),
-                    textColor: Colors.white,
-                    onPressed: () {
-                      _editorController.flip(
-                        animation: true,
-                      );
-                    },
-                  ),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (BuildContext c, BoxConstraints b) {
-                        return RulerPicker(
-                          controller: _rulerPickerController,
-                          rulerScaleTextStyle: const TextStyle(
-                            color: Color.fromARGB(255, 188, 194, 203),
-                            fontSize: 10,
-                          ),
-                          marker: Transform.translate(
-                            offset: const Offset(0, -5),
-                            child: Container(
-                              width: 2,
-                              height: 44,
-                              color: primaryColor,
-                            ),
-                          ),
-                          onValueChanged: (num value) {
-                            if (_rulerPickerController.value
-                                    .toDouble()
-                                    .equalTo(value.toDouble()) &&
-                                !_onUndoOrRedoing) {
-                              return;
-                            }
-                            HapticFeedback.vibrate();
-
-                            showToastWidget(
-                              Container(
-                                decoration: BoxDecoration(
-                                  borderRadius:
-                                      BorderRadius.circular(toastTheme.radius),
-                                  color: toastTheme.backgroundColor,
-                                ),
-                                padding: const EdgeInsets.all(5),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: <Widget>[
-                                    Text(
-                                      '$value°',
-                                      style: toastTheme.textStyle,
-                                    ),
-                                    const SizedBox(
-                                      width: 10,
-                                    ),
-                                    GestureDetector(
-                                      onTap: () {
-                                        dismissAllToast();
-                                        _editorController.rotate(
-                                          degree: -_rulerPickerController.value
-                                              as double,
-                                        );
-                                        _rulerPickerController.value = 0;
-                                      },
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                          color: Colors.white,
-                                        ),
-                                        child: const Icon(
-                                          Icons.close,
-                                          color: Colors.black,
-                                          size: 20,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              position: const ToastPosition(
-                                align: Alignment.bottomCenter,
-                                offset: -180,
-                              ),
-                              handleTouch: true,
-                            );
-
-                            _editorController.rotate(
-                              degree: value.toDouble() -
-                                  _rulerPickerController.value,
-                            );
-
-                            _rulerPickerController.setValueWithOutNotify(value);
-                          },
-                          width: b.maxWidth,
-                          height: 50,
-                          onBuildRulerScaleText:
-                              (int index, num rulerScaleValue) {
-                            return '$rulerScaleValue';
-                          },
-                          ranges: const <RulerRange>[
-                            RulerRange(begin: -45, end: 45, scale: 1),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                  FlatButtonWithIcon(
-                    icon: const Icon(Icons.rotate_right),
-                    label: const Text(
-                      'Rotate Right',
-                      style: TextStyle(fontSize: 8.0),
-                    ),
-                    textColor: Colors.white,
-                    onPressed: () {
-                      _editorController.rotate(
-                        degree: 90,
-                        animation: true,
-                        rotateCropRect: true,
-                        // duration: const Duration(
-                        //   seconds: 10,
-                        // ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              // color: Colors.black.withOpacity(0.2),
-              height: 80,
-              child: ValueListenableBuilder<AspectRatioItem>(
-                valueListenable: _aspectRatio,
-                builder: (BuildContext context, AspectRatioItem value,
-                    Widget? child) {
-                  return ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemBuilder: (_, int index) {
-                      final AspectRatioItem item = _aspectRatios[index];
-                      return GestureDetector(
-                        child: Padding(
-                          padding: const EdgeInsets.all(10.0),
-                          child: AspectRatioWidget(
-                            aspectRatio: item.value,
-                            aspectRatioS: item.text,
-                            isSelected: item == _aspectRatio.value,
-                          ),
-                        ),
-                        onTap: () {
-                          if (_cropLayerPainter
-                              is CircleEditorCropLayerPainter) {
-                            if (item.value != CropAspectRatios.ratio1_1) {
-                              showToast(
-                                  'Circle crop only support 1:1 aspect ratio');
-                              return;
-                            }
-                          }
-
-                          _editorController.updateCropAspectRatio(item.value);
-                          _aspectRatio.value = item;
-                        },
-                      );
-                    },
-                    itemCount: _aspectRatios.length,
-                  );
-                },
-              ),
+            PerspectivePage(
+              memoryImage: _memoryImage,
+              editorController: _perspectiveEditorController,
+              onReset: _resetAll,
             ),
           ],
         ),
@@ -583,18 +210,19 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
                                 _cropImage(false);
                               },
                             ),
-                            OutlinedButton(
-                              child: const Text(
-                                'Native',
-                                style: TextStyle(
-                                  color: Colors.blue,
+                            if (_tabController.index == 0)
+                              OutlinedButton(
+                                child: const Text(
+                                  'Native',
+                                  style: TextStyle(
+                                    color: Colors.blue,
+                                  ),
                                 ),
+                                onPressed: () {
+                                  Navigator.of(context).pop();
+                                  _cropImage(true);
+                                },
                               ),
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                                _cropImage(true);
-                              },
-                            ),
                           ],
                         )
                       ],
@@ -608,38 +236,6 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
         });
   }
 
-  bool _onUndoOrRedoing = false;
-  void _onUndoOrRedo(Function fn) {
-    final double oldRotateDegrees = _editorController.rotateDegrees;
-    final double? oldCropAspectRatio =
-        _editorController.originalCropAspectRatio;
-    _onUndoOrRedoing = true;
-    fn();
-    _onUndoOrRedoing = false;
-    final double newRotateDegrees = _editorController.rotateDegrees;
-    final double? newCropAspectRatio =
-        _editorController.originalCropAspectRatio;
-    if (oldRotateDegrees != newRotateDegrees &&
-        !(newRotateDegrees - oldRotateDegrees).isZero &&
-        (newRotateDegrees - oldRotateDegrees) % 90 != 0) {
-      _rulerPickerController.value =
-          _rulerPickerController.value + (newRotateDegrees - oldRotateDegrees);
-    }
-
-    if (oldCropAspectRatio != newCropAspectRatio) {
-      if (newCropAspectRatio == null) {
-        _aspectRatio.value = _aspectRatios.first;
-      } else {
-        _aspectRatio.value = _aspectRatios.firstWhere(
-          (AspectRatioItem element) => element.value == newCropAspectRatio,
-          orElse: () => _aspectRatios.first,
-        );
-      }
-    }
-
-    _cropLayerPainter.value = _editorController.config.cropLayerPainter;
-  }
-
   Future<void> _cropImage(bool useNative) async {
     if (_cropping) {
       return;
@@ -648,26 +244,29 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
     try {
       _cropping = true;
 
-      //await showBusyingDialog();
-
       late EditImageInfo imageInfo;
 
-      /// native library
-      if (useNative) {
-        imageInfo = await cropImageDataWithNativeLibrary(_editorController);
-      } else {
-        ///delay due to cropImageDataWithDartLibrary is time consuming on main thread
-        ///it will block showBusyingDialog
-        ///if you don't want to block ui, use compute/isolate,but it costs more time.
-        //await Future.delayed(Duration(milliseconds: 200));
+      // 根据当前tab选择对应的控制器
+      final currentController = _tabController.index == 0
+          ? _cropEditorController
+          : _perspectiveEditorController;
 
-        ///if you don't want to block ui, use compute/isolate,but it costs more time.
-        imageInfo = await cropImageDataWithDartLibrary(_editorController);
+      /// native library
+      if (useNative && _tabController.index == 0) {
+        imageInfo = await cropImageDataWithNativeLibrary(currentController);
+      } else {
+        if (_tabController.index == 1) {
+          // 透视变换使用Dart库
+          imageInfo =
+              await perspectiveImageDataWithDartLibrary(currentController);
+        } else {
+          imageInfo = await cropImageDataWithDartLibrary(currentController);
+        }
       }
+
       final String? filePath = await ImageSaver.save(
-          'extended_image_cropped_image.${imageInfo.imageType == ImageType.jpg ? 'jpg' : 'gif'}',
+          'extended_image_cropped_image.${_imageTypeExtension(imageInfo.imageType)}',
           imageInfo.data!);
-      // var filePath = await ImagePickerSaver.saveFile(fileData: fileData);
 
       msg = 'save image : $filePath';
 
@@ -699,21 +298,719 @@ class _ImageEditorDemoState extends State<ImageEditorDemo> {
       print(msg);
     }
 
-    //Navigator.of(context).pop();
-
     _cropping = false;
   }
 
-  Uint8List? _memoryImage;
+  String _imageTypeExtension(ImageType imageType) {
+    switch (imageType) {
+      case ImageType.gif:
+        return 'gif';
+      case ImageType.png:
+        return 'png';
+      case ImageType.jpg:
+        return 'jpg';
+    }
+  }
+
   Future<void> _getImage() async {
     _memoryImage = await pickImage(context);
-    //when back to current page, may be editorKey.currentState is not ready.
     Future<void>.delayed(const Duration(milliseconds: 200), () {
       setState(() {
-        _rulerPickerController.value = 0;
-        _editorController.reset();
+        _resetAll();
       });
     });
+  }
+
+  void _resetAll() {
+    _rulerPickerController.value = 0;
+    _cropEditorController.reset();
+    _perspectiveEditorController.reset();
+  }
+}
+
+class CropPage extends StatefulWidget {
+  const CropPage({
+    super.key,
+    required this.memoryImage,
+    required this.editorController,
+    required this.aspectRatios,
+    required this.rulerPickerController,
+    required this.onReset,
+  });
+
+  final Uint8List? memoryImage;
+  final ImageEditorController editorController;
+  final List<AspectRatioItem> aspectRatios;
+  final MyRulerPickerController rulerPickerController;
+  final VoidCallback onReset;
+
+  @override
+  State<CropPage> createState() => _CropPageState();
+}
+
+class _CropPageState extends State<CropPage>
+    with AutomaticKeepAliveClientMixin {
+  final GlobalKey<PopupMenuButtonState<EditorCropLayerPainter>> popupMenuKey =
+      GlobalKey<PopupMenuButtonState<EditorCropLayerPainter>>();
+  late ValueNotifier<AspectRatioItem> _aspectRatio;
+  late ValueNotifier<EditorCropLayerPainter> _cropLayerPainter;
+  bool _onUndoOrRedoing = false;
+
+  EdgeInsets cropRectPadding = const EdgeInsets.all(20.0);
+  double maxScale = 8.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _aspectRatio = ValueNotifier<AspectRatioItem>(widget.aspectRatios.first);
+    _cropLayerPainter =
+        ValueNotifier<EditorCropLayerPainter>(const EditorCropLayerPainter());
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final Color primaryColor = Theme.of(context).primaryColor;
+    late ImageProvider imageProvider;
+
+    if (widget.memoryImage != null) {
+      imageProvider = ExtendedMemoryImageProvider(
+        widget.memoryImage!,
+        cacheRawData: true,
+      );
+    } else {
+      imageProvider = const ExtendedAssetImageProvider(
+        Assets.assets_harley_quinn_webp,
+        cacheRawData: true,
+      );
+    }
+
+    return Column(
+      children: <Widget>[
+        Expanded(
+          child: ExtendedImage(
+            image: imageProvider,
+            fit: BoxFit.contain,
+            mode: ExtendedImageMode.editor,
+            enableLoadState: true,
+            initEditorConfigHandler: (ExtendedImageState? state) {
+              return EditorConfig(
+                maxScale: maxScale,
+                cropRectPadding: cropRectPadding,
+                hitTestSize: 20.0,
+                cropLayerPainter: _cropLayerPainter.value,
+                initCropRectType: InitCropRectType.imageRect,
+                cropAspectRatio: _aspectRatio.value.value,
+                controller: widget.editorController,
+                enablePerspectiveTransform: false,
+                enableMeshWarpTransform: false,
+                editorMode: EditorMode.crop,
+              );
+            },
+          ),
+        ),
+        const Divider(),
+        ButtonTheme(
+          minWidth: 0.0,
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: <Widget>[
+              FlatButtonWithIcon(
+                icon: const Icon(Icons.rounded_corner_sharp),
+                label: ValueListenableBuilder<EditorCropLayerPainter>(
+                    valueListenable: _cropLayerPainter,
+                    builder: (BuildContext context,
+                        EditorCropLayerPainter value, Widget? child) {
+                      return PopupMenuButton<EditorCropLayerPainter>(
+                        key: popupMenuKey,
+                        enabled: false,
+                        offset: const Offset(100, -300),
+                        child: const Text(
+                          'Painter',
+                          style: TextStyle(fontSize: 8.0),
+                        ),
+                        initialValue: _cropLayerPainter.value,
+                        itemBuilder: (BuildContext context) {
+                          return <PopupMenuEntry<EditorCropLayerPainter>>[
+                            const PopupMenuItem<EditorCropLayerPainter>(
+                              child: Row(
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.rounded_corner_sharp,
+                                    color: Colors.blue,
+                                  ),
+                                  SizedBox(
+                                    width: 5,
+                                  ),
+                                  Text('Default'),
+                                ],
+                              ),
+                              value: EditorCropLayerPainter(),
+                            ),
+                            const PopupMenuDivider(),
+                            const PopupMenuItem<EditorCropLayerPainter>(
+                              child: Row(
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.circle,
+                                    color: Colors.blue,
+                                  ),
+                                  SizedBox(
+                                    width: 5,
+                                  ),
+                                  Text('Custom'),
+                                ],
+                              ),
+                              value: CustomEditorCropLayerPainter(),
+                            ),
+                            const PopupMenuDivider(),
+                            PopupMenuItem<EditorCropLayerPainter>(
+                              child: Row(
+                                children: <Widget>[
+                                  Container(
+                                    margin: const EdgeInsets.symmetric(
+                                        horizontal: 3),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.blue,
+                                      ),
+                                      borderRadius: BorderRadius.circular(25),
+                                    ),
+                                    width: 20,
+                                    height: 20,
+                                  ),
+                                  const SizedBox(
+                                    width: 5,
+                                  ),
+                                  const Text('Circle'),
+                                ],
+                              ),
+                              value: const CircleEditorCropLayerPainter(),
+                            ),
+                          ];
+                        },
+                        onSelected: (EditorCropLayerPainter value) {
+                          if (_cropLayerPainter.value != value) {
+                            if (value is CircleEditorCropLayerPainter) {
+                              _aspectRatio.value = widget.aspectRatios[2];
+                            }
+                            _cropLayerPainter.value = value;
+                            widget.editorController.updateConfig(
+                              widget.editorController.config.copyWith(
+                                cropLayerPainter: value,
+                                cropAspectRatio: _aspectRatio.value.value,
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    }),
+                textColor: Colors.white,
+                onPressed: () {
+                  popupMenuKey.currentState!.showButtonMenu();
+                },
+              ),
+              ChangeNotifierBuilder(
+                changeNotifier: widget.editorController,
+                builder: (BuildContext b) {
+                  return ButtonTheme(
+                    minWidth: 0.0,
+                    padding: EdgeInsets.zero,
+                    child: Row(children: <Widget>[
+                      FlatButtonWithIcon(
+                        icon: Icon(
+                          Icons.undo,
+                          color: widget.editorController.canUndo
+                              ? primaryColor
+                              : Colors.grey,
+                        ),
+                        label: Text(
+                          'Undo',
+                          style: TextStyle(
+                            fontSize: 10.0,
+                            color: widget.editorController.canUndo
+                                ? primaryColor
+                                : Colors.grey,
+                          ),
+                        ),
+                        textColor: Colors.white,
+                        onPressed: () {
+                          _onUndoOrRedo(() {
+                            widget.editorController.undo();
+                          });
+                        },
+                      ),
+                      FlatButtonWithIcon(
+                        icon: Icon(
+                          Icons.redo,
+                          color: widget.editorController.canRedo
+                              ? primaryColor
+                              : Colors.grey,
+                        ),
+                        label: Text(
+                          'Redo',
+                          style: TextStyle(
+                            fontSize: 10.0,
+                            color: widget.editorController.canRedo
+                                ? primaryColor
+                                : Colors.grey,
+                          ),
+                        ),
+                        textColor: Colors.white,
+                        onPressed: () {
+                          _onUndoOrRedo(() {
+                            widget.editorController.redo();
+                          });
+                        },
+                      ),
+                    ]),
+                  );
+                },
+              ),
+              const Spacer(),
+              FlatButtonWithIcon(
+                icon: const Icon(Icons.restore),
+                label: const Text(
+                  'Reset',
+                  style: TextStyle(fontSize: 10.0),
+                ),
+                textColor: Colors.white,
+                onPressed: () {
+                  widget.rulerPickerController.value = 0;
+                  _aspectRatio.value = widget.aspectRatios.first;
+                  _cropLayerPainter.value = const EditorCropLayerPainter();
+                  widget.onReset();
+                },
+              ),
+            ],
+          ),
+        ),
+        ButtonTheme(
+          minWidth: 0.0,
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: <Widget>[
+              FlatButtonWithIcon(
+                icon: const Icon(Icons.flip),
+                label: const Text(
+                  'Flip',
+                  style: TextStyle(fontSize: 10.0),
+                ),
+                textColor: Colors.white,
+                onPressed: () {
+                  widget.editorController.flip(animation: true);
+                },
+              ),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (BuildContext c, BoxConstraints b) {
+                    return RulerPicker(
+                      controller: widget.rulerPickerController,
+                      rulerScaleTextStyle: const TextStyle(
+                        color: Color.fromARGB(255, 188, 194, 203),
+                        fontSize: 10,
+                      ),
+                      marker: Transform.translate(
+                        offset: const Offset(0, -5),
+                        child: Container(
+                          width: 2,
+                          height: 44,
+                          color: primaryColor,
+                        ),
+                      ),
+                      onValueChanged: (num value) {
+                        if (widget.rulerPickerController.value
+                                .toDouble()
+                                .equalTo(value.toDouble()) &&
+                            !_onUndoOrRedoing) {
+                          return;
+                        }
+                        HapticFeedback.vibrate();
+
+                        widget.editorController.rotate(
+                          degree: value.toDouble() -
+                              widget.rulerPickerController.value,
+                        );
+
+                        widget.rulerPickerController
+                            .setValueWithOutNotify(value);
+                      },
+                      width: b.maxWidth,
+                      height: 50,
+                      onBuildRulerScaleText: (int index, num rulerScaleValue) {
+                        return '$rulerScaleValue';
+                      },
+                      ranges: const <RulerRange>[
+                        RulerRange(begin: -45, end: 45, scale: 1),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              FlatButtonWithIcon(
+                icon: const Icon(Icons.rotate_right),
+                label: const Text(
+                  'Rotate Right',
+                  style: TextStyle(fontSize: 8.0),
+                ),
+                textColor: Colors.white,
+                onPressed: () {
+                  widget.editorController.rotate(
+                    degree: 90,
+                    animation: true,
+                    rotateCropRect: true,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        Container(
+          height: 80,
+          child: ValueListenableBuilder<AspectRatioItem>(
+            valueListenable: _aspectRatio,
+            builder:
+                (BuildContext context, AspectRatioItem value, Widget? child) {
+              return ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemBuilder: (_, int index) {
+                  final AspectRatioItem item = widget.aspectRatios[index];
+                  return GestureDetector(
+                    child: Padding(
+                      padding: const EdgeInsets.all(10.0),
+                      child: AspectRatioWidget(
+                        aspectRatio: item.value,
+                        aspectRatioS: item.text,
+                        isSelected: item == _aspectRatio.value,
+                      ),
+                    ),
+                    onTap: () {
+                      if (_cropLayerPainter.value
+                          is CircleEditorCropLayerPainter) {
+                        if (item.value != CropAspectRatios.ratio1_1) {
+                          showToast(
+                              'Circle crop only support 1:1 aspect ratio');
+                          return;
+                        }
+                      }
+
+                      widget.editorController.updateCropAspectRatio(item.value);
+                      _aspectRatio.value = item;
+                    },
+                  );
+                },
+                itemCount: widget.aspectRatios.length,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _onUndoOrRedo(Function fn) {
+    final double oldRotateDegrees = widget.editorController.rotateDegrees;
+    final double? oldCropAspectRatio =
+        widget.editorController.originalCropAspectRatio;
+    _onUndoOrRedoing = true;
+    fn();
+    _onUndoOrRedoing = false;
+    final double newRotateDegrees = widget.editorController.rotateDegrees;
+    final double? newCropAspectRatio =
+        widget.editorController.originalCropAspectRatio;
+    if (oldRotateDegrees != newRotateDegrees &&
+        !(newRotateDegrees - oldRotateDegrees).isZero &&
+        (newRotateDegrees - oldRotateDegrees) % 90 != 0) {
+      widget.rulerPickerController.value = widget.rulerPickerController.value +
+          (newRotateDegrees - oldRotateDegrees);
+    }
+
+    if (oldCropAspectRatio != newCropAspectRatio) {
+      if (newCropAspectRatio == null) {
+        _aspectRatio.value = widget.aspectRatios.first;
+      } else {
+        _aspectRatio.value = widget.aspectRatios.firstWhere(
+          (AspectRatioItem element) => element.value == newCropAspectRatio,
+          orElse: () => widget.aspectRatios.first,
+        );
+      }
+    }
+
+    _cropLayerPainter.value = widget.editorController.config.cropLayerPainter;
+  }
+}
+
+class PerspectivePage extends StatefulWidget {
+  const PerspectivePage({
+    super.key,
+    required this.memoryImage,
+    required this.editorController,
+    required this.onReset,
+  });
+
+  final Uint8List? memoryImage;
+  final ImageEditorController editorController;
+  final VoidCallback onReset;
+
+  @override
+  State<PerspectivePage> createState() => _PerspectivePageState();
+}
+
+class _PerspectivePageState extends State<PerspectivePage>
+    with AutomaticKeepAliveClientMixin {
+  bool _enablePerspectiveTransform = false;
+  bool _enableMeshWarpTransform = false;
+
+  EdgeInsets cropRectPadding = const EdgeInsets.all(20.0);
+  double maxScale = 8.0;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final Color primaryColor = Theme.of(context).primaryColor;
+    late ImageProvider imageProvider;
+
+    if (widget.memoryImage != null) {
+      imageProvider = ExtendedMemoryImageProvider(
+        widget.memoryImage!,
+        cacheRawData: true,
+      );
+    } else {
+      imageProvider = const ExtendedAssetImageProvider(
+        Assets.assets_harley_quinn_webp,
+        cacheRawData: true,
+      );
+    }
+
+    return Column(
+      children: <Widget>[
+        Expanded(
+          child: ExtendedImage(
+            image: imageProvider,
+            fit: BoxFit.contain,
+            mode: ExtendedImageMode.editor,
+            enableLoadState: true,
+            initEditorConfigHandler: (ExtendedImageState? state) {
+              return EditorConfig(
+                maxScale: maxScale,
+                cropRectPadding: cropRectPadding,
+                hitTestSize: 20.0,
+                cropLayerPainter: const EditorCropLayerPainter(),
+                initCropRectType: InitCropRectType.imageRect,
+                controller: widget.editorController,
+                enablePerspectiveTransform: _enablePerspectiveTransform,
+                enableMeshWarpTransform: _enableMeshWarpTransform,
+                perspectiveLineColor: Colors.amber,
+                perspectiveHandleColor: Colors.white,
+                editorMode: EditorMode.perspective,
+              );
+            },
+          ),
+        ),
+        const Divider(),
+        ButtonTheme(
+          minWidth: 0.0,
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: <Widget>[
+              ChangeNotifierBuilder(
+                changeNotifier: widget.editorController,
+                builder: (BuildContext b) {
+                  return ButtonTheme(
+                    minWidth: 0.0,
+                    padding: EdgeInsets.zero,
+                    child: Row(children: <Widget>[
+                      FlatButtonWithIcon(
+                        icon: Icon(
+                          Icons.undo,
+                          color: widget.editorController.canUndo
+                              ? primaryColor
+                              : Colors.grey,
+                        ),
+                        label: Text(
+                          'Undo',
+                          style: TextStyle(
+                            fontSize: 10.0,
+                            color: widget.editorController.canUndo
+                                ? primaryColor
+                                : Colors.grey,
+                          ),
+                        ),
+                        textColor: Colors.white,
+                        onPressed: () {
+                          widget.editorController.undo();
+                        },
+                      ),
+                      FlatButtonWithIcon(
+                        icon: Icon(
+                          Icons.redo,
+                          color: widget.editorController.canRedo
+                              ? primaryColor
+                              : Colors.grey,
+                        ),
+                        label: Text(
+                          'Redo',
+                          style: TextStyle(
+                            fontSize: 10.0,
+                            color: widget.editorController.canRedo
+                                ? primaryColor
+                                : Colors.grey,
+                          ),
+                        ),
+                        textColor: Colors.white,
+                        onPressed: () {
+                          widget.editorController.redo();
+                        },
+                      ),
+                    ]),
+                  );
+                },
+              ),
+              const Spacer(),
+              FlatButtonWithIcon(
+                icon: const Icon(Icons.restore),
+                label: const Text(
+                  'Reset',
+                  style: TextStyle(fontSize: 10.0),
+                ),
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() {
+                    _enablePerspectiveTransform = true;
+                    _enableMeshWarpTransform = false;
+                  });
+                  widget.onReset();
+                },
+              ),
+            ],
+          ),
+        ),
+        Container(
+          height: 80,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: <Widget>[
+              _PerspectiveButton(
+                icon: Icons.flip,
+                label: '水平',
+                selected: false,
+                onTap: () => _applyPerspectivePreset(
+                  <Offset>[
+                    const Offset(36, 0),
+                    const Offset(-36, 0),
+                    const Offset(36, 0),
+                    const Offset(-36, 0),
+                  ],
+                ),
+              ),
+              _PerspectiveButton(
+                icon: Icons.view_agenda_outlined,
+                label: '垂直',
+                selected: false,
+                onTap: () => _applyPerspectivePreset(
+                  <Offset>[
+                    const Offset(0, 36),
+                    const Offset(0, -36),
+                    const Offset(0, -36),
+                    const Offset(0, 36),
+                  ],
+                ),
+              ),
+              _PerspectiveButton(
+                icon: Icons.filter_tilt_shift,
+                label: '扭曲',
+                selected: _enableMeshWarpTransform,
+                onTap: _toggleMeshWarpTransform,
+              ),
+              _PerspectiveButton(
+                icon: Icons.crop_free,
+                label: '自由变换',
+                selected: _enablePerspectiveTransform,
+                onTap: _togglePerspectiveTransform,
+              ),
+              _PerspectiveButton(
+                icon: Icons.layers_clear,
+                label: '清除',
+                selected: false,
+                onTap: () {
+                  setState(() {
+                    _enablePerspectiveTransform = false;
+                    _enableMeshWarpTransform = false;
+                  });
+                  widget.editorController.resetPerspective();
+                  widget.editorController.resetMeshWarp();
+                  widget.editorController.updateConfig(
+                    widget.editorController.config.copyWith(
+                      enablePerspectiveTransform: false,
+                      enableMeshWarpTransform: false,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _togglePerspectiveTransform() {
+    setState(() {
+      _enablePerspectiveTransform = !_enablePerspectiveTransform;
+      if (_enablePerspectiveTransform) {
+        _enableMeshWarpTransform = false;
+      }
+    });
+    if (_enablePerspectiveTransform) {
+      widget.editorController.resetMeshWarp();
+    }
+    widget.editorController.updateConfig(
+      widget.editorController.config.copyWith(
+        enablePerspectiveTransform: _enablePerspectiveTransform,
+        enableMeshWarpTransform: _enableMeshWarpTransform,
+      ),
+    );
+  }
+
+  void _toggleMeshWarpTransform() {
+    setState(() {
+      _enableMeshWarpTransform = !_enableMeshWarpTransform;
+      if (_enableMeshWarpTransform) {
+        _enablePerspectiveTransform = false;
+      }
+    });
+    if (_enableMeshWarpTransform) {
+      widget.editorController.resetPerspective();
+    }
+    widget.editorController.updateConfig(
+      widget.editorController.config.copyWith(
+        enablePerspectiveTransform: _enablePerspectiveTransform,
+        enableMeshWarpTransform: _enableMeshWarpTransform,
+      ),
+    );
+  }
+
+  void _applyPerspectivePreset(List<Offset> offsets) {
+    if (!_enablePerspectiveTransform) {
+      setState(() {
+        _enablePerspectiveTransform = true;
+        _enableMeshWarpTransform = false;
+      });
+      widget.editorController.resetMeshWarp();
+      widget.editorController.updateConfig(
+        widget.editorController.config.copyWith(
+          enablePerspectiveTransform: true,
+          enableMeshWarpTransform: false,
+        ),
+      );
+    }
+    widget.editorController.setPerspectiveOffsets(offsets);
   }
 }
 
@@ -769,6 +1066,52 @@ class CircleEditorCropLayerPainter extends EditorCropLayerPainter {
       super.paintLines(canvas, size, painter);
       canvas.restore();
     }
+  }
+}
+
+class _PerspectiveButton extends StatelessWidget {
+  const _PerspectiveButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color primaryColor = Theme.of(context).primaryColor;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 92,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? primaryColor : Colors.black26,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected ? primaryColor : Colors.white24,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(icon, size: 24),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 10),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

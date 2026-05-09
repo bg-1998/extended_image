@@ -14,6 +14,7 @@ import 'crop_layer.dart';
 import 'edit_action_details.dart';
 import 'editor_config.dart';
 import 'editor_utils.dart';
+import 'perspective_transform_layer.dart';
 
 part 'image_editor_controller.dart';
 
@@ -237,6 +238,16 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
                     });
                   }
                   _layoutRect = layoutRect;
+                  
+                  final bool isPerspectiveMode = 
+                      _editorConfig!.editorMode == EditorMode.perspective;
+                  final bool hasPerspectiveEnabled = 
+                      _editorConfig!.enablePerspectiveTransform ||
+                      _editorConfig!.enableMeshWarpTransform;
+                  
+                  if (isPerspectiveMode || hasPerspectiveEnabled) {
+                    return const SizedBox.shrink();
+                  }
                   return ExtendedImageCropLayer(
                     editActionDetails: _editActionDetails!,
                     editorConfig: _editorConfig!,
@@ -248,6 +259,19 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
                     fit: BoxFit.contain,
                   );
                 },
+              ),
+            ),
+            Positioned.fill(
+              child: ExtendedImagePerspectiveTransformLayer(
+                editActionDetails: _editActionDetails!,
+                editorConfig: _editorConfig!,
+                onChanged: (EditActionDetails details) {
+                  _safeUpdate(() {
+                    setState(() {});
+                    _editorConfig!.editActionDetailsIsChanged?.call(details);
+                  });
+                },
+                onChangeEnd: _saveCurrentState,
               ),
             ),
           ],
@@ -361,7 +385,7 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
   }
 
   void _handleScaleStart(ScaleStartDetails details) {
-    _layerKey.currentState!.pointerDown(true);
+    _layerKey.currentState?.pointerDown(true);
     _startingOffset = details.focalPoint;
     _editActionDetails!.screenFocalPoint = details.focalPoint;
     _startingScale = _editActionDetails!.totalScale;
@@ -370,9 +394,9 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
   }
 
   void _handleScaleUpdate(ScaleUpdateDetails details) {
-    _layerKey.currentState!.pointerDown(true);
-    if (_layerKey.currentState!.isAnimating ||
-        _layerKey.currentState!.isMoving) {
+    final ExtendedImageCropLayerState? layerState = _layerKey.currentState;
+    layerState?.pointerDown(true);
+    if ((layerState?.isAnimating ?? false) || (layerState?.isMoving ?? false)) {
       return;
     }
     double totalScale = _startingScale * details.scale * _editorConfig!.speed;
@@ -461,7 +485,9 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
       return null;
     }
 
-    final Path path = _editActionDetails!.getImagePath();
+    final Path path = _editActionDetails!.getImagePath(
+      includePerspective: false,
+    );
 
     imageScreenRect = path.getBounds();
 
@@ -478,6 +504,7 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
 
     final Path physicalimagePath = _editActionDetails!.getImagePath(
       rect: physicalimageRect,
+      includePerspective: false,
     );
     physicalimageRect = physicalimagePath.getBounds();
 
@@ -612,6 +639,40 @@ class ExtendedImageEditorState extends State<ExtendedImageEditor>
 
       _editorConfig!.editActionDetailsIsChanged?.call(_editActionDetails);
     });
+  }
+
+  @override
+  void setPerspectiveOffsets(List<Offset>? offsets) {
+    if (_animationController.isAnimating || _editActionDetails == null) {
+      return;
+    }
+    setState(() {
+      _editActionDetails!.setPerspectiveOffsets(offsets);
+      _editorConfig!.editActionDetailsIsChanged?.call(_editActionDetails);
+    });
+    _saveCurrentState();
+  }
+
+  @override
+  void resetPerspective() {
+    setPerspectiveOffsets(null);
+  }
+
+  @override
+  void setMeshWarpOffsets(List<Offset>? offsets) {
+    if (_animationController.isAnimating || _editActionDetails == null) {
+      return;
+    }
+    setState(() {
+      _editActionDetails!.setMeshWarpOffsets(offsets);
+      _editorConfig!.editActionDetailsIsChanged?.call(_editActionDetails);
+    });
+    _saveCurrentState();
+  }
+
+  @override
+  void resetMeshWarp() {
+    setMeshWarpOffsets(null);
   }
 
   @override

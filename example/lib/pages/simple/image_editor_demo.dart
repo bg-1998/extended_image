@@ -70,10 +70,22 @@ class _SimpleImageEditorState extends State<SimpleImageEditor> {
           ? (await cropImageDataWithDartLibrary(_editorController))
           : (await cropImageDataWithNativeLibrary(_editorController));
       final String? fileFath = await ImageSaver.save(
-          'extended_image_cropped_image.jpg', fileData.data!);
+          'extended_image_cropped_image.${_imageTypeExtension(fileData.imageType)}',
+          fileData.data!);
       showToast('save image : $fileFath');
     } finally {
       _cropping = false;
+    }
+  }
+
+  String _imageTypeExtension(ImageType imageType) {
+    switch (imageType) {
+      case ImageType.gif:
+        return 'gif';
+      case ImageType.png:
+        return 'png';
+      case ImageType.jpg:
+        return 'jpg';
     }
   }
 }

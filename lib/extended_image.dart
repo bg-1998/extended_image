@@ -9,6 +9,7 @@ export 'src/editor/editor.dart';
 export 'src/editor/editor_config.dart';
 export 'src/editor/editor_crop_layer_painter.dart';
 export 'src/editor/editor_utils.dart';
+export 'src/editor/perspective_transform_layer.dart';
 export 'src/extended_image.dart';
 export 'src/gesture/gesture.dart';
 export 'src/gesture/page_view/gesture_page_view.dart';

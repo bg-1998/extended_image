@@ -27,6 +27,31 @@ class ImageEditorController extends ChangeNotifier
   /// transformations like cropping, rotating, and scaling.
   EditActionDetails? get editActionDetails => _state?._editActionDetails;
 
+  /// Updates the four perspective corner offsets. Order is top-left,
+  /// top-right, bottom-right, bottom-left.
+  @override
+  void setPerspectiveOffsets(List<Offset>? offsets) {
+    _state?.setPerspectiveOffsets(offsets);
+  }
+
+  /// Clears the perspective transform.
+  @override
+  void resetPerspective() {
+    _state?.resetPerspective();
+  }
+
+  /// Updates the 3x3 mesh warp control offsets.
+  @override
+  void setMeshWarpOffsets(List<Offset>? offsets) {
+    _state?.setMeshWarpOffsets(offsets);
+  }
+
+  /// Clears the mesh warp transform.
+  @override
+  void resetMeshWarp() {
+    _state?.resetMeshWarp();
+  }
+
   /// Flips the image horizontally. You can enable animation and adjust the
   /// animation duration.
   @override
@@ -175,4 +200,17 @@ mixin ImageEditorControllerMixin {
 
   /// get the current config of the editor.
   EditorConfig get config;
+
+  /// Updates the four perspective corner offsets. Order is top-left,
+  /// top-right, bottom-right, bottom-left.
+  void setPerspectiveOffsets(List<Offset>? offsets);
+
+  /// Clears the perspective transform.
+  void resetPerspective();
+
+  /// Updates the 3x3 mesh warp control offsets.
+  void setMeshWarpOffsets(List<Offset>? offsets);
+
+  /// Clears the mesh warp transform.
+  void resetMeshWarp();
 }
